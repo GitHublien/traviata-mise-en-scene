@@ -62,8 +62,22 @@
     will-change: transform;
     backface-visibility: hidden;
     -webkit-backface-visibility: hidden;
+    /* Empêche le menu contextuel iOS/Android (Télécharger la vidéo) au tap long */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
   video.smooth { transition: transform 0.25s ease-out; }
+  /* Pendant le pinch-zoom, on cache TOUTE l'interface */
+  .stage.pinching .top-bar,
+  .stage.pinching .bottom-bar,
+  .stage.pinching .center-play .icon,
+  .stage.pinching .minimap,
+  .stage.pinching .zoom-indicator {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transition: opacity 0.08s !important;
+  }
 
   /* Mini-map quand on est zoomé */
   .minimap {
@@ -856,47 +870,17 @@ const CLIPS = [
   {
     file: "01_Acte1_Fete_Brindisi_Valzer.mp4",
     title: "Acte 1 — Fête chez Violetta",
-    markers: [
-      { t: 0,    label: "Début" },
-      { t: 30,   label: "Entrée Marchese (bouquet)" },
-      { t: 60,   label: "Bouscule Alfredo" },
-      { t: 90,   label: "À genoux — claque" },
-      { t: 130,  label: "Vers les danseuses" },
-      { t: 170,  label: "Donne le bouquet" },
-      { t: 220,  label: "Toast / Brindisi" },
-      { t: 320,  label: "Marchese se déshabille" },
-      { t: 480,  label: "Valzer" },
-      { t: 600,  label: "Malaise Violetta" }
-    ]
+    markers: []
   },
   {
     file: "02_Acte1_Stretta_finale.mp4",
     title: "Acte 1 — Stretta finale",
-    markers: [
-      { t: 0,    label: "Début Stretta" },
-      { t: 30,   label: "Mercè a voi" },
-      { t: 60,   label: "Reprise tutti" },
-      { t: 90,   label: "Sortie finale" }
-    ]
+    markers: []
   },
   {
     file: "03_Acte2_Fete_Flora.mp4",
     title: "Acte 2 — Fête chez Flora",
-    markers: [
-      { t: 0,    label: "Entrée chez Flora" },
-      { t: 60,   label: "La novità ignorate?" },
-      { t: 120,  label: "Giungono gli amici" },
-      { t: 200,  label: "Che diancin vi pensate?" },
-      { t: 280,  label: "Su via si stenda un velo" },
-      { t: 400,  label: "Sì sì bravi" },
-      { t: 500,  label: "Mattadori BLOC 1" },
-      { t: 620,  label: "Mattadori BLOC 2" },
-      { t: 750,  label: "Arrivée Alfredo" },
-      { t: 850,  label: "Jeu" },
-      { t: 1000, label: "Scandale" },
-      { t: 1100, label: "Oh infamia orribile" },
-      { t: 1250, label: "Finale Bloc B" }
-    ]
+    markers: []
   }
 ];
 
@@ -1527,6 +1511,7 @@ function setupTouchAndMouse() {
       pinchStartDist = Math.hypot(dx, dy);
       pinchStartZoom = zoom;
       clearTimeout(longPressTimer);
+      stage.classList.add('pinching');
     } else if (e.touches.length === 1) {
       touchStartX = e.touches[0].clientX;
       touchStartY = e.touches[0].clientY;
@@ -1583,7 +1568,13 @@ function setupTouchAndMouse() {
     pinchStartDist = null;
     isDragging = false;
     clearTimeout(longPressTimer);
+    // Petit délai avant de réafficher l'UI pour éviter le flash
+    setTimeout(() => stage.classList.remove('pinching'), 80);
   });
+
+  // Empêche le menu contextuel iOS/Android (Télécharger la vidéo) au tap long
+  videoWrap.addEventListener('contextmenu', e => e.preventDefault());
+  video.addEventListener('contextmenu', e => e.preventDefault());
 }
 
 /* ============================================================
