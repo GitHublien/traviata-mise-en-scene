@@ -698,67 +698,6 @@
     font-size: 13px;
   }
 
-  /* ===========================================================
-     LOADER & CACHE STATUS
-     =========================================================== */
-  .loader {
-    position: absolute;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0,0,0,0.85);
-    color: white;
-    padding: 16px 24px;
-    border-radius: 12px;
-    font-size: 14px;
-    z-index: 50;
-    display: none;
-    text-align: center;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    min-width: 220px;
-  }
-  .loader.visible { display: block; }
-  .loader .spinner {
-    width: 28px; height: 28px;
-    border: 3px solid rgba(255,255,255,0.2);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    margin: 0 auto 10px;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .cache-status {
-    position: absolute;
-    top: calc(8px + var(--safe-top));
-    right: 12px;
-    background: rgba(0,0,0,0.7);
-    color: var(--ok);
-    padding: 6px 10px;
-    border-radius: 12px;
-    font-size: 11px;
-    z-index: 9;
-    display: none;
-    align-items: center;
-    gap: 4px;
-    backdrop-filter: blur(8px);
-  }
-  .cache-status.visible { display: inline-flex; }
-  .cache-status .dot {
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: var(--ok);
-    animation: pulse 1.4s ease-in-out infinite;
-  }
-  .cache-status.done .dot { animation: none; }
-  @keyframes pulse {
-    0%, 100% { opacity: 0.4; }
-    50% { opacity: 1; }
-  }
-  .cache-status.done {
-    color: var(--ok);
-    background: rgba(108,191,115,0.2);
-  }
-
   /* Help button hint */
   .first-time-hint {
     position: absolute;
@@ -783,7 +722,7 @@
 
   <div class="stage" id="stage">
     <div class="video-wrap" id="videoWrap">
-      <video id="video" preload="auto" playsinline webkit-playsinline crossorigin="anonymous"></video>
+      <video id="video" preload="metadata" playsinline webkit-playsinline></video>
     </div>
 
     <!-- Center play indicator -->
@@ -926,17 +865,6 @@
 
     <!-- TOAST -->
     <div class="toast" id="toast"></div>
-
-    <!-- LOADER -->
-    <div class="loader" id="loader">
-      <div class="spinner"></div>
-      <div id="loaderText">Chargement de la vidéo...</div>
-    </div>
-
-    <!-- CACHE STATUS -->
-    <div class="cache-status" id="cacheStatus">
-      <span class="dot"></span><span id="cacheStatusText">Téléchargement en arrière-plan...</span>
-    </div>
 
   </div>
 
@@ -1759,119 +1687,6 @@ function setupTimeline() {
 
 window.addEventListener('resize', () => applyTransform());
 window.addEventListener('orientationchange', () => setTimeout(applyTransform, 200));
-
-/* ============================================================
-   SERVICE WORKER — cache vidéos + offline
-   ============================================================ */
-let cachedVideos = new Set();
-function setupServiceWorker() {
-  if (!('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.register('./sw.js').then(reg => {
-    // Lance le préchargement des vidéos en arrière-plan
-    function trigger() {
-      if (navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ action: 'precache-videos' });
-      } else {
-        setTimeout(trigger, 500);
-      }
-    }
-    trigger();
-  }).catch(err => console.warn('SW failed:', err));
-
-  navigator.serviceWorker.addEventListener('message', e => {
-    if (e.data.type === 'video-cached') {
-      cachedVideos.add(e.data.url.split('/').pop());
-      updateCacheStatus();
-    } else if (e.data.type === 'all-cached') {
-      const status = document.getElementById('cacheStatus');
-      const txt = document.getElementById('cacheStatusText');
-      txt.textContent = 'Toutes les vidéos sont prêtes ✓';
-      status.classList.add('done');
-      setTimeout(() => status.classList.remove('visible'), 4000);
-    }
-  });
-}
-function updateCacheStatus() {
-  const status = document.getElementById('cacheStatus');
-  const txt = document.getElementById('cacheStatusText');
-  status.classList.add('visible');
-  txt.textContent = `Vidéos prêtes : ${cachedVideos.size}/3`;
-}
-
-/* ============================================================
-   GESTION VIDÉO — loader, auto-retry, buffering
-   ============================================================ */
-function setupVideoEvents() {
-  const loader = document.getElementById('loader');
-  const loaderText = document.getElementById('loaderText');
-
-  let stallTimer = null;
-
-  video.addEventListener('waiting', () => {
-    // Buffering : la vidéo attend des données
-    clearTimeout(stallTimer);
-    stallTimer = setTimeout(() => {
-      loaderText.textContent = 'Mise en mémoire tampon...';
-      loader.classList.add('visible');
-    }, 500);
-  });
-
-  video.addEventListener('playing', () => {
-    clearTimeout(stallTimer);
-    loader.classList.remove('visible');
-  });
-
-  video.addEventListener('canplay', () => {
-    clearTimeout(stallTimer);
-    loader.classList.remove('visible');
-  });
-
-  video.addEventListener('loadstart', () => {
-    loaderText.textContent = 'Chargement...';
-    loader.classList.add('visible');
-    setTimeout(() => {
-      if (video.readyState >= 2) loader.classList.remove('visible');
-    }, 1500);
-  });
-
-  video.addEventListener('loadeddata', () => {
-    loader.classList.remove('visible');
-  });
-
-  // Auto-retry en cas d'erreur réseau
-  video.addEventListener('error', e => {
-    console.warn('Video error', video.error);
-    loaderText.textContent = '⚠ Erreur. Nouvelle tentative...';
-    loader.classList.add('visible');
-    setTimeout(() => {
-      const t = video.currentTime;
-      video.load();
-      video.currentTime = t;
-      video.play().catch(() => {});
-    }, 1500);
-  });
-
-  // Si on stall trop longtemps (>8s), on essaie de redémarrer
-  let stallStart = null;
-  setInterval(() => {
-    if (!video.paused && video.readyState < 3) {
-      if (!stallStart) stallStart = Date.now();
-      else if (Date.now() - stallStart > 8000) {
-        loaderText.textContent = '⚠ Connexion lente, on relance...';
-        const t = video.currentTime;
-        video.load();
-        video.currentTime = t;
-        video.play().catch(() => {});
-        stallStart = null;
-      }
-    } else {
-      stallStart = null;
-    }
-  }, 2000);
-}
-
-setupServiceWorker();
-setupVideoEvents();
 init();
 </script>
 </body>
