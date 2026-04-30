@@ -1,0 +1,1642 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0e0e12">
+<title>🎬 Mise en scène — La Traviata — Marchese</title>
+<style>
+  :root {
+    --bg: #0e0e12;
+    --panel: #1a1a22ee;
+    --panel-2: #232330;
+    --accent: #e85d75;
+    --accent-2: #f4a261;
+    --text: #f1f1f3;
+    --muted: #8a8a98;
+    --ok: #6cbf73;
+    --warn: #f4a261;
+    --safe-top: env(safe-area-inset-top, 0);
+    --safe-bottom: env(safe-area-inset-bottom, 0);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    overscroll-behavior: none;
+    touch-action: manipulation;
+  }
+  #app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+
+  /* ===========================================================
+     STAGE — La vidéo en fond, plein écran, immersif
+     =========================================================== */
+  .stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+  }
+  .video-wrap {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    cursor: grab;
+  }
+  .video-wrap.grabbing { cursor: grabbing; }
+  video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    transform-origin: center center;
+    background: #000;
+    will-change: transform;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+  video.smooth { transition: transform 0.25s ease-out; }
+
+  /* Mini-map quand on est zoomé */
+  .minimap {
+    position: absolute;
+    top: calc(64px + var(--safe-top));
+    right: 12px;
+    width: 100px;
+    height: 56px;
+    background: rgba(0,0,0,0.55);
+    border: 2px solid rgba(255,255,255,0.4);
+    border-radius: 6px;
+    display: none;
+    overflow: hidden;
+    z-index: 5;
+    pointer-events: none;
+    transition: opacity 0.25s;
+  }
+  .minimap.visible { display: block; }
+  .minimap-rect {
+    position: absolute;
+    border: 2px solid var(--accent);
+    background: rgba(232,93,117,0.2);
+  }
+
+  /* Indicateur de zoom temporaire (apparaît pendant le pinch) */
+  .zoom-indicator {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.7);
+    color: white;
+    padding: 8px 18px;
+    border-radius: 24px;
+    font-size: 18px;
+    font-family: Consolas, monospace;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+    z-index: 8;
+  }
+  .zoom-indicator.visible { opacity: 1; }
+
+  /* Bouton play central — toujours là mais discret */
+  .center-play {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 6;
+  }
+  .center-play .icon {
+    background: rgba(0,0,0,0.5);
+    color: white;
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .stage.paused .center-play .icon,
+  .stage:not(.idle) .center-play .icon { opacity: 0.85; }
+  .stage.paused .center-play .icon { opacity: 1; }
+  .stage.idle:not(.paused) .center-play .icon { opacity: 0; }
+
+  /* ===========================================================
+     CONTROLS — TOP & BOTTOM bars qui apparaissent au tap
+     =========================================================== */
+  .top-bar, .bottom-bar {
+    position: absolute;
+    left: 0; right: 0;
+    z-index: 10;
+    transition: opacity 0.3s, transform 0.3s;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .top-bar {
+    top: 0;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.85), rgba(0,0,0,0.0));
+    padding: calc(8px + var(--safe-top)) 12px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .bottom-bar {
+    bottom: 0;
+    background: linear-gradient(to top, rgba(0,0,0,0.9), rgba(0,0,0,0.0));
+    padding: 14px 12px calc(10px + var(--safe-bottom));
+  }
+
+  .stage.idle .top-bar { opacity: 0; transform: translateY(-12px); }
+  .stage.idle .bottom-bar { opacity: 0; transform: translateY(12px); }
+  .stage.idle .top-bar, .stage.idle .bottom-bar { pointer-events: none; }
+
+  /* Titre & onglets clip */
+  .clip-tabs { display: flex; gap: 4px; }
+  .clip-tab {
+    background: rgba(255,255,255,0.08);
+    color: var(--muted);
+    border: none;
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: 0.15s;
+    min-height: 40px;
+  }
+  .clip-tab.active {
+    background: linear-gradient(135deg, var(--accent), #c44569);
+    color: white;
+  }
+  .top-bar .spacer { flex: 1; }
+  .top-bar .icon-btn {
+    background: rgba(255,255,255,0.12);
+    color: var(--text);
+    border: none;
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .icon-btn.on {
+    background: var(--accent);
+    color: white;
+  }
+
+  /* Timeline */
+  .timeline-wrap {
+    position: relative;
+    height: 22px;
+    margin-bottom: 8px;
+    cursor: pointer;
+  }
+  .timeline-bar {
+    position: absolute;
+    top: 9px;
+    left: 0; right: 0;
+    height: 4px;
+    background: rgba(255,255,255,0.25);
+    border-radius: 2px;
+  }
+  .timeline-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    border-radius: 2px;
+    width: 0;
+  }
+  .timeline-loop {
+    position: absolute;
+    top: 9px;
+    height: 4px;
+    background: rgba(108,191,115,0.4);
+    border: 1px solid var(--ok);
+    border-radius: 2px;
+    pointer-events: none;
+    display: none;
+  }
+  .timeline-loop.visible { display: block; }
+  .timeline-marker {
+    position: absolute;
+    top: 5px;
+    width: 4px;
+    height: 12px;
+    background: var(--warn);
+    border-radius: 1px;
+    cursor: pointer;
+  }
+  .timeline-marker.active { background: var(--accent); height: 16px; top: 3px; }
+  .timeline-thumb {
+    position: absolute;
+    top: 5px;
+    width: 12px; height: 12px;
+    background: white;
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    transform: translateX(-6px);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+    pointer-events: none;
+  }
+
+  /* Bottom controls row */
+  .bottom-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .ctrl-btn {
+    background: rgba(255,255,255,0.1);
+    color: var(--text);
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 14px;
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 10px;
+    font-weight: 500;
+    transition: 0.1s;
+  }
+  .ctrl-btn:active { transform: scale(0.92); background: rgba(255,255,255,0.2); }
+  .ctrl-btn.primary { background: var(--accent); color: white; min-width: 56px; }
+  .ctrl-btn.primary:active { background: #d44a62; }
+  .ctrl-btn.on { background: var(--ok); color: white; }
+  .ctrl-btn.danger { background: rgba(232,93,117,0.2); color: var(--accent); }
+
+  .time-readout {
+    font-family: Consolas, monospace;
+    font-size: 12px;
+    color: var(--muted);
+    padding: 0 6px;
+    min-width: 110px;
+    text-align: center;
+  }
+  .speed-readout, .zoom-readout {
+    font-family: Consolas, monospace;
+    font-size: 12px;
+    min-width: 42px;
+    text-align: center;
+    padding: 0 4px;
+  }
+  .speed-readout { color: var(--accent-2); }
+  .zoom-readout { color: var(--accent); }
+
+  /* Group sections in bottom bar */
+  .group {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 4px;
+    border-right: 1px solid rgba(255,255,255,0.15);
+  }
+  .group:last-child { border-right: none; }
+  @media (max-width: 720px) {
+    .group { border-right: none; padding: 0 2px; }
+    .ctrl-btn { min-width: 40px; min-height: 40px; padding: 0 8px; }
+    .group.optional { display: none; }
+    .top-bar .clip-tab { padding: 6px 10px; font-size: 12px; }
+  }
+
+  /* ===========================================================
+     SIDEBAR DRAWER — 3 onglets
+     =========================================================== */
+  .drawer {
+    position: absolute;
+    top: 0; right: 0; bottom: 0;
+    width: 360px;
+    max-width: 90vw;
+    background: var(--panel);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    z-index: 20;
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    box-shadow: -10px 0 40px rgba(0,0,0,0.5);
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
+  }
+  .drawer.open { transform: translateX(0); }
+  .drawer-header {
+    display: flex;
+    align-items: center;
+    padding: 12px 14px;
+    border-bottom: 1px solid #2c2c38;
+  }
+  .drawer-header .close {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 22px;
+    cursor: pointer;
+    width: 36px;
+    height: 36px;
+  }
+  .drawer-tabs {
+    display: flex;
+    gap: 4px;
+    flex: 1;
+    margin-left: 8px;
+  }
+  .drawer-tab {
+    background: rgba(255,255,255,0.06);
+    color: var(--muted);
+    border: none;
+    border-radius: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    flex: 1;
+    min-height: 40px;
+  }
+  .drawer-tab.active {
+    background: var(--accent);
+    color: white;
+  }
+  .drawer-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .drawer-pane { display: none; }
+  .drawer-pane.active { display: block; }
+
+  /* Marker / Note items */
+  .item-list { display: flex; flex-direction: column; gap: 6px; }
+  .item {
+    background: var(--panel-2);
+    padding: 10px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    border-left: 3px solid var(--warn);
+    transition: 0.15s;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .item:active { background: #2c2c38; }
+  .item.active {
+    background: linear-gradient(90deg, rgba(232,93,117,0.2), transparent);
+    border-left-color: var(--accent);
+  }
+  .item-time {
+    font-family: Consolas, monospace;
+    color: var(--accent-2);
+    font-size: 12px;
+    min-width: 48px;
+  }
+  .item-label { flex: 1; word-break: break-word; }
+  .item-actions {
+    display: none;
+    gap: 4px;
+  }
+  .drawer.edit-mode .item-actions { display: inline-flex; }
+  .item-actions span {
+    cursor: pointer;
+    color: var(--muted);
+    padding: 4px 8px;
+    font-size: 12px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 4px;
+  }
+  .item-actions span:active { color: var(--accent); }
+
+  .note-item { border-left-color: var(--accent-2); flex-direction: column; align-items: stretch; }
+  .note-item .top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .note-text { word-wrap: break-word; line-height: 1.4; }
+
+  .photo-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .photo-card {
+    background: var(--panel-2);
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    position: relative;
+  }
+  .photo-card img { width: 100%; display: block; }
+  .photo-card .meta {
+    padding: 6px 8px;
+    font-size: 11px;
+    color: var(--muted);
+    font-family: Consolas, monospace;
+    display: flex;
+    justify-content: space-between;
+  }
+  .photo-card .delete {
+    position: absolute;
+    top: 4px; right: 4px;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 14px;
+  }
+
+  /* Quick add bar inside drawer */
+  .quick-add {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .quick-add input {
+    flex: 1;
+    background: var(--panel-2);
+    border: 1px solid #2c2c38;
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-size: 14px;
+    min-height: 44px;
+  }
+  .quick-add button {
+    background: var(--accent);
+    border: none;
+    border-radius: 8px;
+    padding: 0 16px;
+    color: white;
+    cursor: pointer;
+    font-size: 16px;
+    min-width: 48px;
+    min-height: 44px;
+  }
+  .export-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 12px;
+  }
+  .export-row button {
+    flex: 1;
+    background: var(--panel-2);
+    border: 1px solid #2c2c38;
+    color: var(--muted);
+    border-radius: 8px;
+    padding: 10px;
+    cursor: pointer;
+    font-size: 12px;
+    min-height: 40px;
+  }
+  .export-row button:active { color: var(--text); background: #2c2c38; }
+
+  .pane-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin-bottom: 10px;
+    margin-top: 16px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .pane-title:first-child { margin-top: 0; }
+  .pane-title .badge {
+    background: var(--accent);
+    color: white;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  /* ===========================================================
+     NOTE OVERLAY (long-press to add)
+     =========================================================== */
+  .note-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 100;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .note-overlay.visible { display: flex; }
+  .note-overlay-card {
+    background: var(--panel);
+    border-radius: 16px;
+    padding: 20px;
+    width: 100%;
+    max-width: 460px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .note-overlay-card h2 {
+    color: var(--accent);
+    font-size: 16px;
+    margin-bottom: 4px;
+  }
+  .note-overlay-card .timecode {
+    color: var(--accent-2);
+    font-family: Consolas, monospace;
+    font-size: 13px;
+    margin-bottom: 14px;
+  }
+  .note-overlay-card textarea {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid #2c2c38;
+    border-radius: 8px;
+    padding: 12px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 15px;
+    resize: vertical;
+    min-height: 100px;
+  }
+  .note-overlay-card .actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+    justify-content: flex-end;
+  }
+  .note-overlay-card button {
+    background: var(--panel-2);
+    border: none;
+    color: var(--muted);
+    border-radius: 8px;
+    padding: 12px 20px;
+    cursor: pointer;
+    font-size: 14px;
+    min-height: 44px;
+  }
+  .note-overlay-card button.primary {
+    background: var(--accent);
+    color: white;
+  }
+  .note-overlay-card .also-photo {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 13px;
+    margin-top: 10px;
+    cursor: pointer;
+  }
+  .note-overlay-card .also-photo input { width: 18px; height: 18px; }
+
+  /* ===========================================================
+     TOAST notification
+     =========================================================== */
+  .toast {
+    position: fixed;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(0,0,0,0.9);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 24px;
+    font-size: 14px;
+    z-index: 200;
+    opacity: 0;
+    transition: 0.3s;
+    pointer-events: none;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  .toast.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  /* ===========================================================
+     Photo viewer modal
+     =========================================================== */
+  .photo-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.95);
+    z-index: 150;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .photo-modal.visible { display: flex; }
+  .photo-modal img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+  .photo-modal .close {
+    position: absolute;
+    top: 20px; right: 20px;
+    background: rgba(255,255,255,0.1);
+    color: white;
+    border: none;
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    font-size: 22px;
+    cursor: pointer;
+  }
+
+  /* Empty states */
+  .empty {
+    text-align: center;
+    color: var(--muted);
+    padding: 40px 20px;
+    font-style: italic;
+    font-size: 13px;
+  }
+
+  /* Help button hint */
+  .first-time-hint {
+    position: absolute;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.85);
+    color: white;
+    padding: 14px 20px;
+    border-radius: 12px;
+    font-size: 13px;
+    max-width: 320px;
+    text-align: center;
+    z-index: 50;
+    backdrop-filter: blur(10px);
+    line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div class="stage" id="stage">
+    <div class="video-wrap" id="videoWrap">
+      <video id="video" preload="metadata" playsinline webkit-playsinline></video>
+    </div>
+
+    <!-- Center play indicator -->
+    <div class="center-play"><div class="icon" id="centerIcon">▶</div></div>
+
+    <!-- Mini-map -->
+    <div class="minimap" id="minimap"><div class="minimap-rect" id="minimapRect"></div></div>
+
+    <!-- Zoom indicator -->
+    <div class="zoom-indicator" id="zoomIndicator">1.0×</div>
+
+    <!-- TOP BAR -->
+    <div class="top-bar">
+      <div class="clip-tabs">
+        <button class="clip-tab active" data-clip="0">Acte 1</button>
+        <button class="clip-tab" data-clip="1">Stretta</button>
+        <button class="clip-tab" data-clip="2">Acte 2</button>
+      </div>
+      <div class="spacer"></div>
+      <button class="icon-btn" onclick="takePhoto()" title="Capturer">📷</button>
+      <button class="icon-btn" onclick="openDrawer()" title="Notes & marqueurs">📝</button>
+      <button class="icon-btn" onclick="toggleFullscreen()" title="Plein écran">⛶</button>
+    </div>
+
+    <!-- BOTTOM BAR -->
+    <div class="bottom-bar">
+      <div class="timeline-wrap" id="timelineWrap">
+        <div class="timeline-bar">
+          <div class="timeline-fill" id="timelineFill"></div>
+          <div class="timeline-loop" id="timelineLoop"></div>
+        </div>
+        <div id="markersOnBar"></div>
+        <div class="timeline-thumb" id="timelineThumb"></div>
+      </div>
+      <div class="bottom-row">
+        <div class="group">
+          <button class="ctrl-btn" onclick="seek(-10)">⏪</button>
+          <button class="ctrl-btn primary" id="playBtn">▶</button>
+          <button class="ctrl-btn" onclick="seek(10)">⏩</button>
+        </div>
+        <span class="time-readout" id="timeReadout">00:00 / 00:00</span>
+        <div class="group optional">
+          <button class="ctrl-btn" onclick="frameStep(-1)" title="-1 image">◀</button>
+          <button class="ctrl-btn" onclick="frameStep(1)" title="+1 image">▶</button>
+        </div>
+        <div class="group">
+          <button class="ctrl-btn" onclick="changeSpeed(-0.25)">🐢</button>
+          <span class="speed-readout" id="speedReadout">1.0×</span>
+          <button class="ctrl-btn" onclick="changeSpeed(0.25)">🐇</button>
+        </div>
+        <div class="group">
+          <button class="ctrl-btn" onclick="changeZoom(-0.25)">−</button>
+          <span class="zoom-readout" id="zoomReadout">1.0×</span>
+          <button class="ctrl-btn" onclick="changeZoom(0.25)">+</button>
+        </div>
+        <div class="group optional">
+          <button class="ctrl-btn" onclick="setLoopPoint('A')" title="Point A">A</button>
+          <button class="ctrl-btn" onclick="setLoopPoint('B')" title="Point B">B</button>
+          <button class="ctrl-btn" id="loopBtn" onclick="toggleLoop()" title="Boucle">🔁</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- DRAWER (sidebar) -->
+    <div class="drawer" id="drawer">
+      <div class="drawer-header">
+        <button class="close" onclick="closeDrawer()">✕</button>
+        <div class="drawer-tabs">
+          <button class="drawer-tab active" data-pane="markers">📍 Repères</button>
+          <button class="drawer-tab" data-pane="notes">📝 Notes</button>
+          <button class="drawer-tab" data-pane="photos">📷 Photos</button>
+        </div>
+        <button class="close" onclick="toggleEditMode()" id="editBtn" title="Mode édition">✏️</button>
+      </div>
+      <div class="drawer-content">
+
+        <!-- PANE: MARKERS -->
+        <div class="drawer-pane active" data-pane="markers">
+          <div class="quick-add" id="markerAdd" style="display:none">
+            <input type="text" id="newMarkerInput" placeholder="Nom du repère au temps actuel...">
+            <button onclick="addMarkerAtCurrent()">+</button>
+          </div>
+          <div class="item-list" id="markerList"></div>
+          <div class="export-row" id="markerExportRow" style="display:none">
+            <button onclick="exportMarkers()">💾 Exporter JSON</button>
+            <button onclick="document.getElementById('importMarkersFile').click()">📂 Importer</button>
+            <button onclick="resetDefaultMarkers()">↺ Reset</button>
+            <input type="file" id="importMarkersFile" accept=".json" hidden onchange="importMarkers(event)">
+          </div>
+        </div>
+
+        <!-- PANE: NOTES -->
+        <div class="drawer-pane" data-pane="notes">
+          <div class="quick-add">
+            <input type="text" id="quickNoteInput" placeholder="Note rapide au temps actuel...">
+            <button onclick="addQuickNote()">+</button>
+          </div>
+          <div class="item-list" id="noteList"></div>
+          <div class="export-row">
+            <button onclick="exportNotes()">💾 Exporter</button>
+            <button onclick="document.getElementById('importNotesFile').click()">📂 Importer</button>
+            <input type="file" id="importNotesFile" accept=".json" hidden onchange="importNotes(event)">
+          </div>
+        </div>
+
+        <!-- PANE: PHOTOS -->
+        <div class="drawer-pane" data-pane="photos">
+          <div class="pane-title">📷 Captures <span class="badge" id="photoCount">0</span></div>
+          <div class="photo-grid" id="photoGrid"></div>
+          <div class="export-row">
+            <button onclick="exportAllPhotos()">💾 Tout télécharger</button>
+            <button onclick="clearPhotos()">🗑 Tout effacer</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- NOTE OVERLAY -->
+    <div class="note-overlay" id="noteOverlay">
+      <div class="note-overlay-card">
+        <h2>📝 Nouvelle note</h2>
+        <div class="timecode" id="noteTime">00:00</div>
+        <textarea id="noteText" placeholder="Tape ta note ici..."></textarea>
+        <label class="also-photo">
+          <input type="checkbox" id="alsoPhoto"> 📷 Capturer aussi l'image
+        </label>
+        <div class="actions">
+          <button onclick="closeNoteOverlay()">Annuler</button>
+          <button class="primary" onclick="saveNoteFromOverlay()">Enregistrer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PHOTO MODAL -->
+    <div class="photo-modal" id="photoModal">
+      <button class="close" onclick="closePhotoModal()">✕</button>
+      <img id="photoModalImg" alt="">
+    </div>
+
+    <!-- TOAST -->
+    <div class="toast" id="toast"></div>
+
+  </div>
+
+</div>
+
+<canvas id="captureCanvas" style="display:none"></canvas>
+
+<script>
+/* ============================================================
+   CLIPS — marqueurs par défaut (à corriger après visionnage)
+   ============================================================ */
+const CLIPS = [
+  {
+    file: "01_Acte1_Fete_Brindisi_Valzer.mp4",
+    title: "Acte 1 — Fête chez Violetta",
+    markers: [
+      { t: 0,    label: "Début" },
+      { t: 30,   label: "Entrée Marchese (bouquet)" },
+      { t: 60,   label: "Bouscule Alfredo" },
+      { t: 90,   label: "À genoux — claque" },
+      { t: 130,  label: "Vers les danseuses" },
+      { t: 170,  label: "Donne le bouquet" },
+      { t: 220,  label: "Toast / Brindisi" },
+      { t: 320,  label: "Marchese se déshabille" },
+      { t: 480,  label: "Valzer" },
+      { t: 600,  label: "Malaise Violetta" }
+    ]
+  },
+  {
+    file: "02_Acte1_Stretta_finale.mp4",
+    title: "Acte 1 — Stretta finale",
+    markers: [
+      { t: 0,    label: "Début Stretta" },
+      { t: 30,   label: "Mercè a voi" },
+      { t: 60,   label: "Reprise tutti" },
+      { t: 90,   label: "Sortie finale" }
+    ]
+  },
+  {
+    file: "03_Acte2_Fete_Flora.mp4",
+    title: "Acte 2 — Fête chez Flora",
+    markers: [
+      { t: 0,    label: "Entrée chez Flora" },
+      { t: 60,   label: "La novità ignorate?" },
+      { t: 120,  label: "Giungono gli amici" },
+      { t: 200,  label: "Che diancin vi pensate?" },
+      { t: 280,  label: "Su via si stenda un velo" },
+      { t: 400,  label: "Sì sì bravi" },
+      { t: 500,  label: "Mattadori BLOC 1" },
+      { t: 620,  label: "Mattadori BLOC 2" },
+      { t: 750,  label: "Arrivée Alfredo" },
+      { t: 850,  label: "Jeu" },
+      { t: 1000, label: "Scandale" },
+      { t: 1100, label: "Oh infamia orribile" },
+      { t: 1250, label: "Finale Bloc B" }
+    ]
+  }
+];
+
+const FPS = 25;
+
+/* ============================================================
+   ÉTAT GLOBAL
+   ============================================================ */
+let currentClip = 0;
+let zoom = 1, panX = 0, panY = 0;
+let loopA = null, loopB = null, loopActive = false;
+let isDragging = false, dragStartX, dragStartY, dragOriginX, dragOriginY;
+let pinchStartDist = null, pinchStartZoom = null, pinchCenterX, pinchCenterY;
+let idleTimer = null;
+let notes = {};
+let photos = [];
+let editMode = false;
+let pendingNoteTime = null;
+let longPressTimer = null;
+let touchStartTime = 0;
+let zoomIndicatorTimer = null;
+let lastTapTime = 0;
+
+const video = document.getElementById('video');
+const videoWrap = document.getElementById('videoWrap');
+const stage = document.getElementById('stage');
+const drawer = document.getElementById('drawer');
+const canvas = document.getElementById('captureCanvas');
+
+/* ============================================================
+   INIT
+   ============================================================ */
+function init() {
+  loadNotes();
+  loadPhotos();
+  loadClip(0);
+  setupTouchAndMouse();
+  setupKeyboard();
+  setupClipTabs();
+  setupDrawerTabs();
+  setupTimeline();
+  setupIdleHide();
+  renderMarkers();
+  renderNotes();
+  renderPhotos();
+  updateUI();
+  if (!localStorage.getItem('hint_shown')) {
+    showHint('💡 Astuce : <b>tape sur l\'écran</b> pour les contrôles, <b>2 doigts</b> pour zoomer, <b>tape long</b> pour ajouter une note.');
+    localStorage.setItem('hint_shown', '1');
+  }
+}
+
+function loadClip(idx) {
+  currentClip = idx;
+  video.src = CLIPS[idx].file;
+  video.load();
+  document.querySelectorAll('.clip-tab').forEach((t, i) => t.classList.toggle('active', i === idx));
+  resetZoom();
+  clearLoop();
+  renderMarkers();
+  renderNotes();
+  renderPhotos();
+}
+
+/* ============================================================
+   PLAYBACK
+   ============================================================ */
+function playPause() {
+  if (video.paused) video.play();
+  else video.pause();
+}
+function seek(d) {
+  video.currentTime = Math.max(0, Math.min(video.duration || 0, video.currentTime + d));
+}
+function frameStep(d) {
+  video.pause();
+  video.currentTime += d / FPS;
+}
+function changeSpeed(d) {
+  video.playbackRate = Math.max(0.25, Math.min(2, video.playbackRate + d));
+}
+
+/* ============================================================
+   ZOOM & PAN
+   ============================================================ */
+function changeZoom(d) {
+  const newZoom = Math.max(1, Math.min(5, zoom + d));
+  if (newZoom === 1) { panX = 0; panY = 0; }
+  zoom = newZoom;
+  applyTransform();
+  showZoomIndicator();
+}
+
+function resetZoom() {
+  zoom = 1; panX = 0; panY = 0;
+  video.classList.add('smooth');
+  applyTransform();
+  setTimeout(() => video.classList.remove('smooth'), 280);
+  showZoomIndicator();
+}
+
+function applyTransform() {
+  const w = videoWrap.clientWidth, h = videoWrap.clientHeight;
+  const maxX = (zoom - 1) * w / 2, maxY = (zoom - 1) * h / 2;
+  panX = Math.max(-maxX, Math.min(maxX, panX));
+  panY = Math.max(-maxY, Math.min(maxY, panY));
+  video.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${zoom})`;
+  updateMinimap();
+}
+
+function updateMinimap() {
+  const mm = document.getElementById('minimap');
+  if (zoom <= 1.05) { mm.classList.remove('visible'); return; }
+  mm.classList.add('visible');
+  const r = document.getElementById('minimapRect');
+  const s = 1 / zoom;
+  const cx = 50 - (panX / videoWrap.clientWidth) * 100;
+  const cy = 50 - (panY / videoWrap.clientHeight) * 100;
+  r.style.width = (s * 100) + '%';
+  r.style.height = (s * 100) + '%';
+  r.style.left = (cx - s * 50) + '%';
+  r.style.top = (cy - s * 50) + '%';
+}
+
+function showZoomIndicator() {
+  const ind = document.getElementById('zoomIndicator');
+  ind.textContent = zoom.toFixed(1) + '×';
+  ind.classList.add('visible');
+  clearTimeout(zoomIndicatorTimer);
+  zoomIndicatorTimer = setTimeout(() => ind.classList.remove('visible'), 700);
+}
+
+/* ============================================================
+   LOOP A→B
+   ============================================================ */
+function setLoopPoint(w) {
+  const t = video.currentTime;
+  if (w === 'A') { loopA = t; if (loopB !== null && loopB <= loopA) loopB = null; }
+  else { loopB = t; if (loopA !== null && loopB <= loopA) loopA = null; }
+  updateLoopUI();
+  toast(`Point ${w} : ${formatTime(t).slice(3,8)}`);
+}
+function clearLoop() { loopA = null; loopB = null; loopActive = false; updateLoopUI(); }
+function toggleLoop() {
+  if (loopA === null || loopB === null) { toast('Place A et B d\'abord'); return; }
+  loopActive = !loopActive;
+  updateLoopUI();
+  toast(loopActive ? '🔁 Boucle active' : 'Boucle désactivée');
+}
+function updateLoopUI() {
+  const btn = document.getElementById('loopBtn');
+  const bar = document.getElementById('timelineLoop');
+  btn.classList.toggle('on', loopActive);
+  if (loopA !== null && loopB !== null && video.duration) {
+    bar.classList.add('visible');
+    bar.style.left = (loopA / video.duration * 100) + '%';
+    bar.style.width = ((loopB - loopA) / video.duration * 100) + '%';
+  } else { bar.classList.remove('visible'); }
+}
+
+/* ============================================================
+   FORMATAGE
+   ============================================================ */
+function formatTime(s) {
+  if (!isFinite(s)) return "00:00:00";
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+}
+function formatShort(s) { return formatTime(s).slice(3); }
+
+/* ============================================================
+   FULLSCREEN
+   ============================================================ */
+function toggleFullscreen() {
+  const el = document.documentElement;
+  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+    (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+  } else {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+  }
+}
+
+/* ============================================================
+   DRAWER
+   ============================================================ */
+function openDrawer() { drawer.classList.add('open'); }
+function closeDrawer() { drawer.classList.remove('open'); }
+function setupDrawerTabs() {
+  document.querySelectorAll('.drawer-tab').forEach(tab => {
+    tab.onclick = () => {
+      document.querySelectorAll('.drawer-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.drawer-pane').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.querySelector(`.drawer-pane[data-pane="${tab.dataset.pane}"]`).classList.add('active');
+    };
+  });
+}
+function toggleEditMode() {
+  editMode = !editMode;
+  drawer.classList.toggle('edit-mode', editMode);
+  document.getElementById('editBtn').classList.toggle('on', editMode);
+  document.getElementById('markerAdd').style.display = editMode ? 'flex' : 'none';
+  document.getElementById('markerExportRow').style.display = editMode ? 'flex' : 'none';
+  toast(editMode ? '✏️ Mode édition activé' : 'Mode édition désactivé');
+}
+
+/* ============================================================
+   MARKERS
+   ============================================================ */
+function getMarkers() {
+  const e = JSON.parse(localStorage.getItem('traviata_markers_edited') || '{}');
+  return e[currentClip] || CLIPS[currentClip].markers;
+}
+function saveMarkers(arr) {
+  const e = JSON.parse(localStorage.getItem('traviata_markers_edited') || '{}');
+  e[currentClip] = arr;
+  localStorage.setItem('traviata_markers_edited', JSON.stringify(e));
+}
+function renderMarkers() {
+  const list = document.getElementById('markerList');
+  const bar = document.getElementById('markersOnBar');
+  list.innerHTML = ''; bar.innerHTML = '';
+  const markers = getMarkers();
+  if (!markers.length) {
+    list.innerHTML = '<div class="empty">Aucun repère.<br>Active le mode ✏️ pour en ajouter.</div>';
+  }
+  markers.forEach((m, i) => {
+    const el = document.createElement('div');
+    el.className = 'item';
+    el.innerHTML = `
+      <span class="item-time">${formatShort(m.t)}</span>
+      <span class="item-label">${esc(m.label)}</span>
+      <span class="item-actions">
+        <span onclick="event.stopPropagation();editMarker(${i})">✏️</span>
+        <span onclick="event.stopPropagation();deleteMarker(${i})">✕</span>
+      </span>
+    `;
+    el.onclick = () => { video.currentTime = m.t; closeDrawer(); };
+    list.appendChild(el);
+  });
+  if (video.duration && isFinite(video.duration)) {
+    markers.forEach(m => {
+      if (m.t >= video.duration) return;
+      const dot = document.createElement('div');
+      dot.className = 'timeline-marker';
+      dot.style.left = (m.t / video.duration * 100) + '%';
+      dot.title = m.label;
+      dot.onclick = e => { e.stopPropagation(); video.currentTime = m.t; };
+      bar.appendChild(dot);
+    });
+  } else {
+    video.addEventListener('loadedmetadata', renderMarkers, { once: true });
+  }
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function addMarkerAtCurrent() {
+  const inp = document.getElementById('newMarkerInput');
+  const txt = inp.value.trim();
+  if (!txt) { toast('Tape un nom'); return; }
+  const arr = [...getMarkers(), { t: video.currentTime, label: txt }];
+  arr.sort((a,b) => a.t - b.t);
+  saveMarkers(arr);
+  inp.value = '';
+  renderMarkers();
+  toast('Repère ajouté');
+}
+function editMarker(i) {
+  const arr = [...getMarkers()];
+  const newL = prompt(`Modifier "${arr[i].label}" :`, arr[i].label);
+  if (newL === null) return;
+  if (!newL.trim()) { deleteMarker(i); return; }
+  arr[i].label = newL.trim();
+  saveMarkers(arr); renderMarkers();
+}
+function deleteMarker(i) {
+  if (!confirm('Supprimer ce repère ?')) return;
+  const arr = [...getMarkers()]; arr.splice(i, 1);
+  saveMarkers(arr); renderMarkers();
+}
+function exportMarkers() {
+  const data = { clip: currentClip, file: CLIPS[currentClip].file, markers: getMarkers() };
+  download(`markers_clip${currentClip+1}.json`, JSON.stringify(data, null, 2));
+  toast('JSON exporté');
+}
+function importMarkers(e) {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    try {
+      const d = JSON.parse(ev.target.result);
+      const arr = d.markers || d;
+      if (!Array.isArray(arr)) throw 0;
+      saveMarkers(arr); renderMarkers();
+      toast(`${arr.length} repères importés`);
+    } catch { toast('Format invalide'); }
+  };
+  r.readAsText(f);
+}
+function resetDefaultMarkers() {
+  if (!confirm('Revenir aux repères par défaut ?')) return;
+  const e = JSON.parse(localStorage.getItem('traviata_markers_edited') || '{}');
+  delete e[currentClip];
+  localStorage.setItem('traviata_markers_edited', JSON.stringify(e));
+  renderMarkers();
+}
+
+/* ============================================================
+   NOTES
+   ============================================================ */
+function loadNotes() {
+  try { notes = JSON.parse(localStorage.getItem('traviata_notes') || '{}'); }
+  catch { notes = {}; }
+}
+function saveNotesToStorage() { localStorage.setItem('traviata_notes', JSON.stringify(notes)); }
+function addQuickNote() {
+  const inp = document.getElementById('quickNoteInput');
+  const txt = inp.value.trim(); if (!txt) return;
+  if (!notes[currentClip]) notes[currentClip] = [];
+  notes[currentClip].push({ t: video.currentTime, text: txt });
+  notes[currentClip].sort((a,b) => a.t - b.t);
+  saveNotesToStorage(); inp.value = ''; renderNotes();
+  toast('Note ajoutée');
+}
+function deleteNote(i) {
+  if (!notes[currentClip]) return;
+  notes[currentClip].splice(i, 1);
+  saveNotesToStorage(); renderNotes();
+}
+function renderNotes() {
+  const list = document.getElementById('noteList');
+  list.innerHTML = '';
+  const arr = notes[currentClip] || [];
+  if (!arr.length) {
+    list.innerHTML = '<div class="empty">Aucune note pour ce clip.<br><br>👉 <b>Tape long sur la vidéo</b> pour ajouter une note rapide.</div>';
+    return;
+  }
+  arr.forEach((n, i) => {
+    const el = document.createElement('div');
+    el.className = 'item note-item';
+    el.innerHTML = `
+      <div class="top">
+        <span class="item-time" onclick="video.currentTime=${n.t};closeDrawer()" style="cursor:pointer">⏯ ${formatShort(n.t)}</span>
+        <span onclick="deleteNote(${i})" style="cursor:pointer;color:var(--muted);padding:4px 8px">✕</span>
+      </div>
+      <div class="note-text">${esc(n.text)}</div>
+    `;
+    list.appendChild(el);
+  });
+}
+function exportNotes() {
+  download('traviata_notes.json', JSON.stringify(notes, null, 2));
+  toast('Notes exportées');
+}
+function importNotes(e) {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    try {
+      notes = JSON.parse(ev.target.result);
+      saveNotesToStorage(); renderNotes();
+      toast('Notes importées');
+    } catch { toast('Format invalide'); }
+  };
+  r.readAsText(f);
+}
+
+/* ============================================================
+   NOTE OVERLAY (long press)
+   ============================================================ */
+function openNoteOverlay() {
+  pendingNoteTime = video.currentTime;
+  video.pause();
+  document.getElementById('noteTime').textContent = formatTime(pendingNoteTime);
+  document.getElementById('noteText').value = '';
+  document.getElementById('alsoPhoto').checked = false;
+  document.getElementById('noteOverlay').classList.add('visible');
+  setTimeout(() => document.getElementById('noteText').focus(), 100);
+}
+function closeNoteOverlay() {
+  document.getElementById('noteOverlay').classList.remove('visible');
+  pendingNoteTime = null;
+}
+function saveNoteFromOverlay() {
+  const txt = document.getElementById('noteText').value.trim();
+  if (!txt) { closeNoteOverlay(); return; }
+  if (!notes[currentClip]) notes[currentClip] = [];
+  notes[currentClip].push({ t: pendingNoteTime, text: txt });
+  notes[currentClip].sort((a,b) => a.t - b.t);
+  saveNotesToStorage();
+  if (document.getElementById('alsoPhoto').checked) takePhoto();
+  closeNoteOverlay(); renderNotes();
+  toast('📝 Note enregistrée');
+}
+
+/* ============================================================
+   PHOTOS
+   ============================================================ */
+function loadPhotos() {
+  try { photos = JSON.parse(localStorage.getItem('traviata_photos') || '[]'); }
+  catch { photos = []; }
+}
+function savePhotosToStorage() {
+  try { localStorage.setItem('traviata_photos', JSON.stringify(photos)); }
+  catch (e) {
+    toast('⚠ Stockage plein, exporte tes photos');
+  }
+}
+function takePhoto() {
+  if (!video.videoWidth) { toast('Vidéo pas prête'); return; }
+  const w = video.videoWidth, h = video.videoHeight;
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  // Si zoomé, on capture la zone visible
+  if (zoom > 1) {
+    const sx = (w - w/zoom) / 2 - (panX / videoWrap.clientWidth) * w;
+    const sy = (h - h/zoom) / 2 - (panY / videoWrap.clientHeight) * h;
+    canvas.width = w / zoom;
+    canvas.height = h / zoom;
+    ctx.drawImage(video, sx, sy, w/zoom, h/zoom, 0, 0, w/zoom, h/zoom);
+  } else {
+    ctx.drawImage(video, 0, 0, w, h);
+  }
+  // Annotation
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(0, canvas.height - 36, canvas.width, 36);
+  ctx.fillStyle = 'white';
+  ctx.font = 'bold 18px sans-serif';
+  ctx.fillText(`${CLIPS[currentClip].title} — ${formatTime(video.currentTime)}`, 12, canvas.height - 12);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  photos.push({
+    clip: currentClip,
+    t: video.currentTime,
+    img: dataUrl,
+    date: Date.now()
+  });
+  savePhotosToStorage();
+  renderPhotos();
+  toast('📷 Photo capturée');
+}
+function renderPhotos() {
+  const grid = document.getElementById('photoGrid');
+  const count = document.getElementById('photoCount');
+  const arr = photos.filter(p => p.clip === currentClip);
+  count.textContent = arr.length;
+  grid.innerHTML = '';
+  if (!arr.length) {
+    grid.innerHTML = '<div class="empty" style="grid-column:1/-1">Aucune photo.<br>Clique 📷 pour capturer.</div>';
+    return;
+  }
+  arr.forEach((p) => {
+    const idx = photos.indexOf(p);
+    const card = document.createElement('div');
+    card.className = 'photo-card';
+    card.innerHTML = `
+      <img src="${p.img}" alt="" onclick="openPhotoModal('${p.img}')">
+      <div class="meta">
+        <span>${formatShort(p.t)}</span>
+        <span onclick="event.stopPropagation();video.currentTime=${p.t};closeDrawer()" style="cursor:pointer;color:var(--accent-2)">⏯</span>
+      </div>
+      <div class="delete" onclick="event.stopPropagation();deletePhoto(${idx})">✕</div>
+    `;
+    grid.appendChild(card);
+  });
+}
+function deletePhoto(idx) {
+  if (!confirm('Supprimer cette photo ?')) return;
+  photos.splice(idx, 1);
+  savePhotosToStorage(); renderPhotos();
+}
+function clearPhotos() {
+  if (!confirm('Tout effacer ?')) return;
+  photos = []; savePhotosToStorage(); renderPhotos();
+}
+function openPhotoModal(src) {
+  document.getElementById('photoModalImg').src = src;
+  document.getElementById('photoModal').classList.add('visible');
+}
+function closePhotoModal() {
+  document.getElementById('photoModal').classList.remove('visible');
+}
+function exportAllPhotos() {
+  if (!photos.length) return;
+  photos.forEach((p, i) => {
+    const a = document.createElement('a');
+    a.href = p.img;
+    a.download = `traviata_clip${p.clip+1}_${formatShort(p.t).replace(/:/g,'-')}_${i}.jpg`;
+    a.click();
+  });
+  toast(`${photos.length} photos téléchargées`);
+}
+
+/* ============================================================
+   UTILS
+   ============================================================ */
+function download(filename, content) {
+  const blob = new Blob([content], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.innerHTML = msg;
+  t.classList.add('visible');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('visible'), 1800);
+}
+function showHint(msg) {
+  const h = document.createElement('div');
+  h.className = 'first-time-hint';
+  h.innerHTML = msg;
+  stage.appendChild(h);
+  setTimeout(() => { h.style.opacity = '0'; setTimeout(() => h.remove(), 400); }, 5000);
+}
+
+/* ============================================================
+   UPDATE LOOP
+   ============================================================ */
+function updateUI() {
+  document.getElementById('zoomReadout').textContent = zoom.toFixed(1) + '×';
+  document.getElementById('speedReadout').textContent = video.playbackRate.toFixed(2) + '×';
+  document.getElementById('playBtn').textContent = video.paused ? '▶' : '⏸';
+  document.getElementById('centerIcon').textContent = video.paused ? '▶' : '';
+  stage.classList.toggle('paused', video.paused);
+  document.getElementById('timeReadout').textContent =
+    `${formatTime(video.currentTime)} / ${formatTime(video.duration || 0)}`;
+  if (video.duration) {
+    const p = video.currentTime / video.duration * 100;
+    document.getElementById('timelineFill').style.width = p + '%';
+    document.getElementById('timelineThumb').style.left = p + '%';
+  }
+  // Loop
+  if (loopActive && loopA !== null && loopB !== null) {
+    if (video.currentTime >= loopB) video.currentTime = loopA;
+    if (video.currentTime < loopA - 0.5) video.currentTime = loopA;
+  }
+  // Active marker
+  const markers = getMarkers();
+  let active = -1;
+  for (let i = 0; i < markers.length; i++) if (markers[i].t <= video.currentTime + 0.5) active = i;
+  document.querySelectorAll('#markerList .item').forEach((el, i) => el.classList.toggle('active', i === active));
+  requestAnimationFrame(updateUI);
+}
+
+/* ============================================================
+   IDLE HIDE
+   ============================================================ */
+function setupIdleHide() {
+  function awake() {
+    stage.classList.remove('idle');
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => stage.classList.add('idle'), 3500);
+  }
+  ['mousemove', 'touchstart', 'click', 'keydown'].forEach(ev =>
+    stage.addEventListener(ev, awake, { passive: true })
+  );
+  awake();
+}
+
+/* ============================================================
+   GESTES TACTILES & SOURIS
+   ============================================================ */
+function setupTouchAndMouse() {
+  document.getElementById('playBtn').onclick = e => { e.stopPropagation(); playPause(); };
+
+  // Single tap on stage = toggle controls / play (handled by idle-hide)
+  // Double-tap = reset zoom
+  // Long press = note overlay
+  let tapTimer = null;
+
+  videoWrap.addEventListener('click', e => {
+    // Ignore if just finished a drag/pinch
+    if (e.detail === 0) return;
+    const now = Date.now();
+    if (now - lastTapTime < 350) {
+      // Double tap
+      clearTimeout(tapTimer);
+      lastTapTime = 0;
+      resetZoom();
+      return;
+    }
+    lastTapTime = now;
+    tapTimer = setTimeout(() => {
+      // Single tap = play/pause
+      playPause();
+    }, 320);
+  });
+
+  // Wheel = zoom
+  videoWrap.addEventListener('wheel', e => {
+    e.preventDefault();
+    changeZoom(e.deltaY < 0 ? 0.25 : -0.25);
+  }, { passive: false });
+
+  // Mouse drag
+  videoWrap.addEventListener('mousedown', e => {
+    if (zoom <= 1) return;
+    isDragging = true;
+    videoWrap.classList.add('grabbing');
+    dragStartX = e.clientX; dragStartY = e.clientY;
+    dragOriginX = panX; dragOriginY = panY;
+  });
+  window.addEventListener('mousemove', e => {
+    if (!isDragging) return;
+    panX = dragOriginX + (e.clientX - dragStartX);
+    panY = dragOriginY + (e.clientY - dragStartY);
+    applyTransform();
+  });
+  window.addEventListener('mouseup', () => {
+    isDragging = false;
+    videoWrap.classList.remove('grabbing');
+  });
+
+  // === TOUCH ===
+  let touchStartX = 0, touchStartY = 0, touchMoved = false;
+
+  videoWrap.addEventListener('touchstart', e => {
+    touchStartTime = Date.now();
+    touchMoved = false;
+
+    if (e.touches.length === 2) {
+      // Pinch start
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      pinchStartDist = Math.hypot(dx, dy);
+      pinchStartZoom = zoom;
+      clearTimeout(longPressTimer);
+    } else if (e.touches.length === 1) {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+
+      if (zoom > 1) {
+        // Drag pan
+        isDragging = true;
+        dragStartX = touchStartX;
+        dragStartY = touchStartY;
+        dragOriginX = panX;
+        dragOriginY = panY;
+      }
+
+      // Start long-press timer
+      clearTimeout(longPressTimer);
+      longPressTimer = setTimeout(() => {
+        if (!touchMoved && pinchStartDist === null) {
+          // Long press detected — open note overlay
+          if (navigator.vibrate) navigator.vibrate(40);
+          openNoteOverlay();
+        }
+      }, 700);
+    }
+  }, { passive: false });
+
+  videoWrap.addEventListener('touchmove', e => {
+    if (e.touches.length === 2 && pinchStartDist) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      zoom = Math.max(1, Math.min(5, pinchStartZoom * (dist / pinchStartDist)));
+      applyTransform();
+      showZoomIndicator();
+      clearTimeout(longPressTimer);
+      touchMoved = true;
+    } else if (e.touches.length === 1) {
+      const dx = e.touches[0].clientX - touchStartX;
+      const dy = e.touches[0].clientY - touchStartY;
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+        touchMoved = true;
+        clearTimeout(longPressTimer);
+      }
+      if (isDragging && zoom > 1) {
+        e.preventDefault();
+        panX = dragOriginX + dx;
+        panY = dragOriginY + dy;
+        applyTransform();
+      }
+    }
+  }, { passive: false });
+
+  videoWrap.addEventListener('touchend', e => {
+    pinchStartDist = null;
+    isDragging = false;
+    clearTimeout(longPressTimer);
+  });
+}
+
+/* ============================================================
+   KEYBOARD
+   ============================================================ */
+function setupKeyboard() {
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    switch (e.key) {
+      case ' ': e.preventDefault(); playPause(); break;
+      case 'ArrowLeft': e.preventDefault(); seek(e.shiftKey ? -1 : -10); break;
+      case 'ArrowRight': e.preventDefault(); seek(e.shiftKey ? 1 : 10); break;
+      case ',': frameStep(-1); break;
+      case '.': frameStep(1); break;
+      case '+': case '=': changeZoom(0.25); break;
+      case '-': case '_': changeZoom(-0.25); break;
+      case 'r': case 'R': resetZoom(); break;
+      case 'a': case 'A': setLoopPoint('A'); break;
+      case 'b': case 'B': setLoopPoint('B'); break;
+      case 'l': case 'L': toggleLoop(); break;
+      case 'f': case 'F': toggleFullscreen(); break;
+      case 'p': case 'P': takePhoto(); break;
+      case 'n': case 'N': openNoteOverlay(); break;
+      case 'm': case 'M': openDrawer(); break;
+      case 'Escape': closeDrawer(); closeNoteOverlay(); closePhotoModal(); break;
+      case '1': loadClip(0); break;
+      case '2': loadClip(1); break;
+      case '3': loadClip(2); break;
+      default:
+        if (/^[0-9]$/.test(e.key)) {
+          if (video.duration) video.currentTime = video.duration * parseInt(e.key) / 10;
+        }
+    }
+  });
+}
+
+function setupClipTabs() {
+  document.querySelectorAll('.clip-tab').forEach(tab => {
+    tab.onclick = () => loadClip(parseInt(tab.dataset.clip));
+  });
+}
+
+function setupTimeline() {
+  document.getElementById('timelineWrap').onclick = e => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const p = (e.clientX - r.left) / r.width;
+    if (video.duration) video.currentTime = video.duration * p;
+  };
+}
+
+window.addEventListener('resize', () => applyTransform());
+window.addEventListener('orientationchange', () => setTimeout(applyTransform, 200));
+init();
+</script>
+</body>
+</html>
