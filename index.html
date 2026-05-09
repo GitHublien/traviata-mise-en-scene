@@ -783,7 +783,7 @@
 
   <div class="stage" id="stage">
     <div class="video-wrap" id="videoWrap">
-      <video id="video" preload="auto" playsinline webkit-playsinline crossorigin="anonymous"></video>
+      <video id="video" preload="metadata" playsinline webkit-playsinline></video>
     </div>
 
     <!-- Center play indicator -->
@@ -1038,8 +1038,13 @@ function seek(d) {
   video.currentTime = Math.max(0, Math.min(video.duration || 0, video.currentTime + d));
 }
 function frameStep(d) {
+  // Avant : on faisait d / FPS = 0.04s, mais les MP4 H.264 ne peuvent chercher
+  // qu'aux keyframes (toutes les 10s). Demander +0.04s tombait toujours sur la
+  // même keyframe, donc rien ne bougeait visuellement.
+  // Solution : pas de 0.5 seconde — un déplacement perceptible mais fin.
   video.pause();
-  video.currentTime += d / FPS;
+  const newTime = video.currentTime + d * 0.5;
+  video.currentTime = Math.max(0, Math.min(video.duration || 0, newTime));
 }
 function changeSpeed(d) {
   video.playbackRate = Math.max(0.25, Math.min(2, video.playbackRate + d));
@@ -1555,8 +1560,12 @@ function setupTouchAndMouse() {
   });
 
   // Wheel = zoom
+  // On annule le tapTimer en cours pour eviter qu'un click qui precede le scroll
+  // declenche playPause() pendant qu'on zoome a la molette.
   videoWrap.addEventListener('wheel', e => {
     e.preventDefault();
+    clearTimeout(tapTimer);
+    lastTapTime = 0;
     changeZoom(e.deltaY < 0 ? 0.25 : -0.25);
   }, { passive: false });
 
@@ -1765,32 +1774,31 @@ window.addEventListener('orientationchange', () => setTimeout(applyTransform, 20
    ============================================================ */
 let cachedVideos = new Set();
 function setupServiceWorker() {
+  // Service Worker temporairement désactivé : l'ancien SW v1 cachait les vidéos
+  // HEVC corrompues et continuait à les servir même après réencodage en H.264,
+  // provoquant des DEMUXER_ERROR et des sauts à 0 quand on cherchait dans la
+  // timeline. On désenregistre tout SW existant pour nettoyer la situation.
+  // Le navigateur gère déjà très bien le cache HTTP standard pour les vidéos.
   if (!('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.register('./sw.js').then(reg => {
-    // Lance le préchargement des vidéos en arrière-plan
-    function trigger() {
-      if (navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ action: 'precache-videos' });
-      } else {
-        setTimeout(trigger, 500);
-      }
-    }
-    trigger();
-  }).catch(err => console.warn('SW failed:', err));
-
-  navigator.serviceWorker.addEventListener('message', e => {
-    if (e.data.type === 'video-cached') {
-      cachedVideos.add(e.data.url.split('/').pop());
-      updateCacheStatus();
-    } else if (e.data.type === 'all-cached') {
-      const status = document.getElementById('cacheStatus');
-      const txt = document.getElementById('cacheStatusText');
-      txt.textContent = 'Toutes les vidéos sont prêtes ✓';
-      status.classList.add('done');
-      setTimeout(() => status.classList.remove('visible'), 4000);
-    }
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(r => {
+      r.unregister().then(ok => {
+        if (ok) console.info('Ancien Service Worker désenregistré.');
+      });
+    });
   });
+  // Vide aussi les caches du SW (les vidéos HEVC corrompues sont là)
+  if (window.caches && caches.keys) {
+    caches.keys().then(keys => {
+      keys.forEach(k => {
+        if (k.startsWith('traviata-')) {
+          caches.delete(k).then(() => console.info('Cache nettoyé:', k));
+        }
+      });
+    });
+  }
 }
+function updateCacheStatus() { /* no-op : SW désactivé */ }
 function updateCacheStatus() {
   const status = document.getElementById('cacheStatus');
   const txt = document.getElementById('cacheStatusText');
@@ -1838,36 +1846,27 @@ function setupVideoEvents() {
     loader.classList.remove('visible');
   });
 
-  // Auto-retry en cas d'erreur réseau
+  // Gestion d'erreur vidéo
+  // Note : on évite complètement les retries automatiques avec video.load() — ils
+  // ramenaient le lecteur à 0 quand on scrubbait dans la timeline et créaient
+  // des boucles infernales. Le navigateur gère déjà très bien le buffering
+  // progressif tout seul, on ne fait que le déranger en intervenant.
   video.addEventListener('error', e => {
     console.warn('Video error', video.error);
-    loaderText.textContent = '⚠ Erreur. Nouvelle tentative...';
-    loader.classList.add('visible');
-    setTimeout(() => {
-      const t = video.currentTime;
-      video.load();
-      video.currentTime = t;
-      video.play().catch(() => {});
-    }, 1500);
-  });
-
-  // Si on stall trop longtemps (>8s), on essaie de redémarrer
-  let stallStart = null;
-  setInterval(() => {
-    if (!video.paused && video.readyState < 3) {
-      if (!stallStart) stallStart = Date.now();
-      else if (Date.now() - stallStart > 8000) {
-        loaderText.textContent = '⚠ Connexion lente, on relance...';
-        const t = video.currentTime;
-        video.load();
-        video.currentTime = t;
-        video.play().catch(() => {});
-        stallStart = null;
-      }
-    } else {
-      stallStart = null;
+    if (location.protocol === 'file:') {
+      loaderText.innerHTML = '⚠ Pour tester en local, lance le serveur via<br><b>LANCER_LE_SITE.bat</b> (double-clic).';
+      loader.classList.add('visible');
+      return;
     }
-  }, 2000);
+    // En HTTP(S), on affiche un message une seule fois sans boucler
+    const code = video.error && video.error.code;
+    if (code === 4) {
+      loaderText.innerHTML = '⚠ Format vidéo non supporté par ce navigateur.';
+    } else {
+      loaderText.innerHTML = '⚠ Erreur de chargement. Vérifie ta connexion.';
+    }
+    loader.classList.add('visible');
+  });
 }
 
 setupServiceWorker();

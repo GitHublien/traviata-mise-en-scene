@@ -1,5 +1,6 @@
 // Service Worker — cache les vidéos en local sur la tablette
-const CACHE_NAME = 'traviata-v1';
+// Bump du cache pour invalider l'ancienne version (anciennes vidéos HEVC)
+const CACHE_NAME = 'traviata-v2';
 const CRITICAL_FILES = [
   './',
   './index.html'
@@ -30,6 +31,18 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
+
+  // Ignorer tout ce qui n'est pas HTTP/HTTPS (chrome-extension, blob, data, etc.)
+  // Ces requêtes ne sont pas cachables et provoquent des erreurs si on essaie.
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+
+  // Ignorer les requêtes Range (vidéos en streaming partiel) : on ne peut pas
+  // les cacher proprement, le navigateur s'en occupe mieux directement.
+  if (e.request.headers.get('range')) return;
+
+  // Ne cacher que les requêtes du même domaine
+  if (url.origin !== self.location.origin) return;
+
   // Stratégie : cache-first pour les vidéos, network-first pour le reste
   if (url.pathname.endsWith('.mp4')) {
     e.respondWith(
@@ -38,7 +51,9 @@ self.addEventListener('fetch', e => {
         return fetch(e.request).then(res => {
           if (res.ok && res.status === 200 && res.type === 'basic') {
             const clone = res.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
+            caches.open(CACHE_NAME).then(cache =>
+              cache.put(e.request, clone).catch(err => console.warn('SW cache put failed:', err))
+            );
           }
           return res;
         });
@@ -47,9 +62,11 @@ self.addEventListener('fetch', e => {
   } else {
     e.respondWith(
       fetch(e.request).then(res => {
-        if (res.ok && e.request.method === 'GET') {
+        if (res.ok && e.request.method === 'GET' && res.type === 'basic') {
           const clone = res.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
+          caches.open(CACHE_NAME).then(cache =>
+            cache.put(e.request, clone).catch(err => console.warn('SW cache put failed:', err))
+          );
         }
         return res;
       }).catch(() => caches.match(e.request))
