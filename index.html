@@ -120,7 +120,10 @@
   }
   .zoom-indicator.visible { opacity: 1; }
 
-  /* Bouton play central — toujours là mais discret */
+  /* Bouton play central — visible uniquement avant le tout premier play */
+  /* Une fois lance, il ne reapparait plus jamais (style Netflix). Pour mettre */
+  /* en pause/lecture pendant le visionnage, on utilise le bouton de la barre */
+  /* du bas, ou la touche Espace. */
   .center-play {
     position: absolute;
     inset: 0;
@@ -140,14 +143,14 @@
     justify-content: center;
     font-size: 36px;
     opacity: 0;
-    transition: opacity 0.3s, transform 0.3s;
+    transition: opacity 0.3s;
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
+    pointer-events: auto;
+    cursor: pointer;
   }
-  .stage.paused .center-play .icon,
-  .stage:not(.idle) .center-play .icon { opacity: 0.85; }
-  .stage.paused .center-play .icon { opacity: 1; }
-  .stage.idle:not(.paused) .center-play .icon { opacity: 0; }
+  /* Visible uniquement quand la classe .first-play est sur le stage */
+  .stage.first-play .center-play .icon { opacity: 1; }
 
   /* ===========================================================
      CONTROLS — TOP & BOTTOM bars qui apparaissent au tap
@@ -1025,12 +1028,16 @@ function loadClip(idx) {
   renderMarkers();
   renderNotes();
   renderPhotos();
+  // Affiche le rond play central au chargement de chaque clip
+  stage.classList.add('first-play');
 }
 
 /* ============================================================
    PLAYBACK
    ============================================================ */
 function playPause() {
+  // Au premier play d'un clip, on retire le rond central pour qu'il ne revienne plus
+  stage.classList.remove('first-play');
   if (video.paused) video.play();
   else video.pause();
 }
@@ -1536,36 +1543,32 @@ function setupIdleHide() {
 function setupTouchAndMouse() {
   document.getElementById('playBtn').onclick = e => { e.stopPropagation(); playPause(); };
 
-  // Single tap on stage = toggle controls / play (handled by idle-hide)
-  // Double-tap = reset zoom
-  // Long press = note overlay
-  let tapTimer = null;
+  // Click sur le rond central = premier play uniquement (puis il disparait)
+  document.getElementById('centerIcon').onclick = e => {
+    e.stopPropagation();
+    playPause();
+  };
 
+  // Double-tap sur la video = reset zoom (utile quand on est zoomé)
+  // On a retiré le single-tap = play/pause : il provoquait des pauses
+  // accidentelles pendant le zoom et les manipulations. Pour mettre en
+  // pause/lecture pendant le visionnage, utiliser le bouton de la barre
+  // du bas ou la touche Espace.
+  let tapTimer = null;
   videoWrap.addEventListener('click', e => {
-    // Ignore if just finished a drag/pinch
     if (e.detail === 0) return;
     const now = Date.now();
     if (now - lastTapTime < 350) {
-      // Double tap
-      clearTimeout(tapTimer);
       lastTapTime = 0;
       resetZoom();
       return;
     }
     lastTapTime = now;
-    tapTimer = setTimeout(() => {
-      // Single tap = play/pause
-      playPause();
-    }, 320);
   });
 
-  // Wheel = zoom
-  // On annule le tapTimer en cours pour eviter qu'un click qui precede le scroll
-  // declenche playPause() pendant qu'on zoome a la molette.
+  // Wheel = zoom (la lecture continue pendant le zoom)
   videoWrap.addEventListener('wheel', e => {
     e.preventDefault();
-    clearTimeout(tapTimer);
-    lastTapTime = 0;
     changeZoom(e.deltaY < 0 ? 0.25 : -0.25);
   }, { passive: false });
 
